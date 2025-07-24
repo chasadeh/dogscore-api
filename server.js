@@ -8,8 +8,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-const recentQueries = [];
-
+// דירוג איכות
 function gradeDogFood({ protein, fat, ash, ingredients }) {
   let score = 0;
   const details = [];
@@ -30,7 +29,7 @@ function gradeDogFood({ protein, fat, ash, ingredients }) {
     details.push("שומן גבוה");
   }
 
-  if (ash <= 9 && ash > 0) {
+  if (ash <= 9) {
     score += 5;
     details.push("אפר ברמה מקובלת");
   }
@@ -85,10 +84,12 @@ function gradeDogFood({ protein, fat, ash, ingredients }) {
   return { grade, score: total, details, color };
 }
 
+// שליפת נתונים מאתר ספץ
 async function fetchFromSpets(productName) {
   const slug = productName.toLowerCase()
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9\-]/g, '');
+
   const url = `https://www.spets.co.il/product/primordial-grain-free-for-adult-dogs-${slug}/`;
 
   try {
@@ -96,14 +97,9 @@ async function fetchFromSpets(productName) {
     const $ = cheerio.load(res.data);
     const ingredients = $('#מאפייני המזון').next('h3 + p').text().trim();
     const nutritionText = $('#אנאליזה תזונתית').next('p').text();
-
-    const proteinMatch = nutritionText.match(/חלבון\s*([\d.]+)%/);
-    const fatMatch = nutritionText.match(/שומן\s*([\d.]+)%/);
-    const ashMatch = nutritionText.match(/אפר\s*([\d.]+)%/);
-
-    const protein = proteinMatch ? parseFloat(proteinMatch[1]) : 0;
-    const fat = fatMatch ? parseFloat(fatMatch[1]) : 0;
-    const ash = ashMatch ? parseFloat(ashMatch[1]) : 0;
+    const protein = parseFloat(nutritionText.match(/חלבון\s*([\d.]+)%/)?.[1] || 0);
+    const fat = parseFloat(nutritionText.match(/שומן\s*([\d.]+)%/)?.[1] || 0);
+    const ash = parseFloat(nutritionText.match(/אפר\s*([\d.]+)%/)?.[1] || 0);
 
     return { protein, fat, ash, ingredients };
   } catch {
@@ -111,6 +107,7 @@ async function fetchFromSpets(productName) {
   }
 }
 
+// נקודת API
 app.post('/api/dogscore', async (req, res) => {
   const { productName } = req.body;
   const data = await fetchFromSpets(productName);
@@ -121,18 +118,10 @@ app.post('/api/dogscore', async (req, res) => {
 
   const result = gradeDogFood(data);
   result.product = productName;
-
-  recentQueries.unshift(result);
-  if (recentQueries.length > 10) recentQueries.pop();
-
   res.json(result);
 });
 
-app.get('/api/recent', (req, res) => {
-  res.json(recentQueries);
-});
-
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
