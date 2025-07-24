@@ -45,7 +45,7 @@
       out.innerHTML = `
         <div class="result">
           <div class="grade ${data.grade}">ציון: ${data.grade}</div>
-          <p><strong>סיכום:</strong> ${data.summary}</p>
+          <p><strong>סיכום:</strong> ${data.summary || ''}</p>
           <p><strong>נקודות:</strong><br>${(data.points || []).map(p => `• ${p}`).join('<br>')}</p>
           <p><strong>פרטים:</strong><br>${(data.details || []).join('<br>')}</p>
         </div>`;
