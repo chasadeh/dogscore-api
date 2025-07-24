@@ -49,30 +49,36 @@ function gradeDogFood({ protein, fat, ash }) {
   else if (score >= 4) grade = 'C';
   else if (score >= 3) grade = 'D';
 
-  return {
-    grade,
-    summary: `ציון ${grade} לפי DogScore`,
-    points,
-    details
-  };
+  return { grade, summary: `ציון ${grade} לפי DogScore`, points, details };
 }
 
 async function fetchFromSpets(productName) {
-  const slug = productName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '');
-  const url = `https://www.spets.co.il/product/primordial-grain-free-for-adult-dogs-${slug}/`;
+  const slug = productName.toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9\-]/g, '');
+
+  const url = `https://www.spets.co.il/product/${slug}/`;
+  console.log(`🔗 Fetching URL: ${url}`);
 
   try {
     const res = await axios.get(url);
-    const $ = cheerio.load(res.data);
-    const nutritionText = $('#אנאליזה תזונתית').next('p').text();
+    const html = res.data;
+    console.log("🔍 HTML length:", html.length);
+
+    const $ = cheerio.load(html);
+    const nutritionText = $('#אנאליזה תזונתית').next('p').text().trim();
+
+    console.log("🔍 nutritionText:", nutritionText);
 
     const protein = parseFloat(nutritionText.match(/חלבון\s*([\d.]+)%/)?.[1] || 0);
     const fat = parseFloat(nutritionText.match(/שומן\s*([\d.]+)%/)?.[1] || 0);
     const ash = parseFloat(nutritionText.match(/אפר\s*([\d.]+)%/)?.[1] || 0);
 
+    console.log(`✅ Parsed → protein: ${protein}, fat: ${fat}, ash: ${ash}`);
     return { protein, fat, ash };
+
   } catch (err) {
-    console.error('שגיאה בסריקה:', err.message);
+    console.error("❌ fetchFromSpets error:", err.message);
     return null;
   }
 }
@@ -80,9 +86,11 @@ async function fetchFromSpets(productName) {
 app.post('/api/dogscore', async (req, res) => {
   const { productName } = req.body;
   const data = await fetchFromSpets(productName);
+
   if (!data) {
     return res.status(404).json({ error: 'לא נמצאו נתונים תקפים עבור המוצר הזה.' });
   }
+
   const result = gradeDogFood(data);
   result.product = productName;
   res.json(result);
