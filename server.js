@@ -2,89 +2,77 @@ const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const cors = require('cors');
-const app = express();
 
+const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
 function gradeDogFood({ protein, fat, ash }) {
-  const score = {
-    grade: 'C',
-    summary: '',
-    points: [],
-    details: []
-  };
+  const points = [];
+  const details = [];
+  let score = 0;
 
-  if (protein >= 30) {
-    score.points.push('חלבון גבוה');
-    score.details.push('תכולת חלבון גבוהה מהממוצע');
+  if (protein >= 28) {
+    score += 3;
+    points.push('חלבון גבוה');
   } else if (protein >= 24) {
-    score.points.push('חלבון תקין');
-    score.details.push('תכולת חלבון סבירה');
-  } else if (protein) {
-    score.points.push('חלבון נמוך');
-    score.details.push('תכולת חלבון מתחת לרצוי');
-    score.grade = 'F';
-  }
-
-  if (ash && ash > 10) {
-    score.points.push('אפר גבוה');
-    score.details.push('אחוז אפר גבוה מהרצוי');
-    score.grade = 'D';
-  } else if (ash) {
-    score.points.push('אפר ברמה מקובלת');
-    score.details.push('אחוז אפר תקין');
-  }
-
-  if (protein >= 36 && fat >= 18) {
-    score.grade = 'A';
-    score.summary = 'ציון A לפי DogScore – פורמולה עשירה עם חלבון ושומן גבוהים';
-  } else if (protein >= 32) {
-    score.grade = 'B';
-    score.summary = 'ציון B לפי DogScore – חלבון גבוה';
-  } else if (protein >= 24) {
-    score.grade = 'C';
-    score.summary = 'ציון C לפי DogScore – רמה בינונית';
+    score += 2;
+    points.push('חלבון בינוני');
   } else {
-    score.grade = 'F';
-    score.summary = 'ציון F לפי DogScore';
+    points.push('חלבון נמוך');
   }
+  details.push(`חלבון: ${protein}%`);
 
-  return score;
+  if (fat >= 14) {
+    score += 2;
+    points.push('שומן גבוה');
+  } else if (fat >= 10) {
+    score += 1;
+    points.push('שומן בינוני');
+  } else {
+    points.push('שומן נמוך');
+  }
+  details.push(`שומן: ${fat}%`);
+
+  if (ash <= 9) {
+    score += 1;
+    points.push('אפר ברמה מקובלת');
+  } else {
+    points.push('אפר גבוה');
+  }
+  details.push(`אפר: ${ash}%`);
+
+  let grade = 'F';
+  if (score >= 6) grade = 'A';
+  else if (score >= 5) grade = 'B';
+  else if (score >= 4) grade = 'C';
+  else if (score >= 3) grade = 'D';
+
+  return {
+    grade,
+    summary: `ציון ${grade} לפי DogScore`,
+    points,
+    details
+  };
 }
 
 async function fetchFromSpets(productName) {
-  const slug = productName.toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9\-]/g, '');
+  const slug = productName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '');
   const url = `https://www.spets.co.il/product/primordial-grain-free-for-adult-dogs-${slug}/`;
 
   try {
     const res = await axios.get(url);
-    const html = res.data;
-    console.log("🔍 HTML length:", html.length);
+    const $ = cheerio.load(res.data);
+    const nutritionText = $('#אנאליזה תזונתית').next('p').text();
 
-    const $ = cheerio.load(html);
-    const ingredients = $('#מאפייני המזון').next('h3 + p').text().trim();
-    const nutritionText = $('#אנאליזה תזונתית').next('p').text().trim();
+    const protein = parseFloat(nutritionText.match(/חלבון\s*([\d.]+)%/)?.[1] || 0);
+    const fat = parseFloat(nutritionText.match(/שומן\s*([\d.]+)%/)?.[1] || 0);
+    const ash = parseFloat(nutritionText.match(/אפר\s*([\d.]+)%/)?.[1] || 0);
 
-    console.log("🔍 ingredients:", ingredients);
-    console.log("🔍 nutritionText:", nutritionText);
-
-    const proteinMatch = nutritionText.match(/חלבון\s*:?[\s ]*([\d.]+)%/);
-    const fatMatch = nutritionText.match(/שומן\s*:?[\s ]*([\d.]+)%/);
-    const ashMatch = nutritionText.match(/אפר\s*:?[\s ]*([\d.]+)%/);
-
-    const protein = proteinMatch ? parseFloat(proteinMatch[1]) : null;
-    const fat = fatMatch ? parseFloat(fatMatch[1]) : null;
-    const ash = ashMatch ? parseFloat(ashMatch[1]) : null;
-
-    console.log(`✅ Parsed → protein: ${protein}, fat: ${fat}, ash: ${ash}`);
-    return { protein, fat, ash, ingredients };
-
+    return { protein, fat, ash };
   } catch (err) {
-    console.error("❌ fetchFromSpets error:", err.message);
+    console.error('שגיאה בסריקה:', err.message);
     return null;
   }
 }
@@ -92,11 +80,9 @@ async function fetchFromSpets(productName) {
 app.post('/api/dogscore', async (req, res) => {
   const { productName } = req.body;
   const data = await fetchFromSpets(productName);
-
   if (!data) {
-    return res.status(404).json({ error: 'לא נמצאו נתונים עבור המוצר הזה.' });
+    return res.status(404).json({ error: 'לא נמצאו נתונים תקפים עבור המוצר הזה.' });
   }
-
   const result = gradeDogFood(data);
   result.product = productName;
   res.json(result);
