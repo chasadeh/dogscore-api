@@ -1,28 +1,55 @@
-<script>
-  async function checkScore() {
-    const query = document.getElementById('query').value;
-    if (!query) return alert('נא להזין שם מוצר.');
+<!DOCTYPE html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8" />
+  <title>DogScore מבית חיית השדה</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 2em; direction: rtl; background: #f7f7f7; }
+    input, button { padding: 10px; font-size: 1em; }
+    button { margin-right: 10px; cursor: pointer; }
+    .result { background: #fff; border-radius: 8px; padding: 1em; margin-top: 1em; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+    .grade { font-size: 2em; font-weight: bold; }
+    .grade.A { color: darkgreen; }
+    .grade.B { color: green; }
+    .grade.C { color: orange; }
+    .grade.D { color: orangered; }
+    .grade.F { color: red; }
+    .grade["A+"] { color: darkslateblue; }
+  </style>
+</head>
+<body>
+  <h1>מערכת דירוג DogScore</h1>
+  <input type="text" id="query" placeholder="הכנס שם מזון לבדיקה..." size="40" />
+  <button onclick="checkScore()">בדוק ציון</button>
+  <div id="output"></div>
 
-    const res = await fetch('https://dogscore-node.onrender.com/api/dogscore', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ productName: query }) // ← שדה נכון
-    });
+  <script>
+    async function checkScore() {
+      const query = document.getElementById('query').value;
+      if (!query) return alert('נא להזין שם מוצר.');
 
-    const data = await res.json();
-    const out = document.getElementById('output');
+      const res = await fetch('https://dogscore-node.onrender.com/api/dogscore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productName: query }) // ← שדה נכון
+      });
 
-    if (data.error) {
-      out.innerHTML = `<p style='color:red;'>שגיאה: ${data.error}</p>`;
-      return;
+      const data = await res.json();
+      const out = document.getElementById('output');
+
+      if (data.error) {
+        out.innerHTML = `<p style='color:red;'>שגיאה: ${data.error}</p>`;
+        return;
+      }
+
+      out.innerHTML = `
+        <div class="result">
+          <div class="grade ${data.grade}">ציון: ${data.grade}</div>
+          <p><strong>סיכום:</strong> ${data.summary || ''}</p>
+          <p><strong>נקודות:</strong><br>${(data.points || []).map(p => `• ${p}`).join('<br>')}</p>
+          <p><strong>פרטים:</strong><br>${(data.details || []).join('<br>')}</p>
+        </div>`;
     }
-
-    out.innerHTML = `
-      <div class="result">
-        <div class="grade ${data.grade}">ציון: ${data.grade}</div>
-        <p><strong>סיכום:</strong> ${data.summary || ''}</p>
-        <p><strong>נקודות:</strong><br>${(data.points || []).map(p => `• ${p}`).join('<br>')}</p>
-        <p><strong>פרטים:</strong><br>${(data.details || []).join('<br>')}</p>
-      </div>`;
-  }
-</script>
+  </script>
+</body>
+</html>
