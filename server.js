@@ -60,8 +60,7 @@ function gradeDogFood({ protein, fat, ash, ingredients }) {
   return { grade, score: total, details, color };
 }
 
-// גרידת נתונים
-async function fetchFromSpets(productName) {
+// גרידת נתוניםasync function fetchFromSpets(productName) {
   const slug = productName.toLowerCase()
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9\-]/g, '');
@@ -69,18 +68,29 @@ async function fetchFromSpets(productName) {
 
   try {
     const res = await axios.get(url);
-    const $ = cheerio.load(res.data);
+    const html = res.data;
+    console.log('🟢 HTML length:', html.length);
+    const $ = cheerio.load(html);
+
     const ingredients = $('#מאפייני המזון').next('h3 + p').text().trim();
     const nutritionText = $('#אנאליזה תזונתית').next('p').text();
-    const protein = parseFloat(nutritionText.match(/חלבון\s*([\d.]+)%/)?.[1]) || 0;
-    const fat = parseFloat(nutritionText.match(/שומן\s*([\d.]+)%/)?.[1]) || 0;
-    const ash = parseFloat(nutritionText.match(/אפר\s*([\d.]+)%/)?.[1]) || null;
+    console.log('Fetched nutritionText:', nutritionText);
+
+    const proteinMatch = nutritionText.match(/חלבון\s*:?[\s ]*([\d.]+)%/);
+    const fatMatch = nutritionText.match(/שומן\s*:?[\s ]*([\d.]+)%/);
+    const ashMatch = nutritionText.match(/אפר\s*:?[\s ]*([\d.]+)%/);
+
+    const protein = proteinMatch ? parseFloat(proteinMatch[1]) : 0;
+    const fat = fatMatch ? parseFloat(fatMatch[1]) : 0;
+    const ash = ashMatch ? parseFloat(ashMatch[1]) : 0;
 
     return { protein, fat, ash, ingredients };
-  } catch {
+  } catch (err) {
+    console.error("שגיאה ב-fetchFromSpets:", err.message);
     return null;
   }
 }
+
 
 app.post('/api/dogscore', async (req, res) => {
   const { productName } = req.body;
