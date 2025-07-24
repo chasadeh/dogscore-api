@@ -28,10 +28,10 @@
       const query = document.getElementById('query').value;
       if (!query) return alert('נא להזין שם מוצר.');
 
-      const res = await fetch('https://dogscore-node.onrender.com/api/dogscore', {
+      const res = await fetch('/api/dogscore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productName: query }) // ← שדה נכון
+        body: JSON.stringify({ productName: query })
       });
 
       const data = await res.json();
@@ -45,7 +45,7 @@
       out.innerHTML = `
         <div class="result">
           <div class="grade ${data.grade}">ציון: ${data.grade}</div>
-          <p><strong>סיכום:</strong> ${data.summary || ''}</p>
+          <p><strong>סיכום:</strong> ${data.summary}</p>
           <p><strong>נקודות:</strong><br>${(data.points || []).map(p => `• ${p}`).join('<br>')}</p>
           <p><strong>פרטים:</strong><br>${(data.details || []).join('<br>')}</p>
         </div>`;
