@@ -1,100 +1,119 @@
-const express = require('express');
-const axios = require('axios');
-const cheerio = require('cheerio');
-const cors = require('cors');
-const rateLimit = require('express-rate-limit');
+const express = require("express");
+const axios = require("axios");
+const cheerio = require("cheerio");
+const cors = require("cors");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(rateLimit({ windowMs: 60000, max: 10 }));
+app.use(express.static('public')); // כאן נטען את index.html מתוך תיקיית public
 
-const ratings = []; // דירוגים בזיכרון בלבד
+const recentQueries = [];
 
-function gradeDogFood(data) {
-  const points = [];
+function gradeDogFood({ protein, fat, ash, ingredients }) {
   let score = 0;
+  const details = [];
 
-  const { protein, fat, ash, ingredients } = data;
-  const ing = ingredients.toLowerCase();
+  if (protein >= 28) {
+    score += 20;
+    details.push("חלבון גבוה");
+  } else if (protein >= 22) {
+    score += 10;
+    details.push("חלבון בינוני");
+  } else {
+    score += 5;
+    details.push("חלבון נמוך");
+  }
 
-  if (protein > 28) {
-    score += 2;
-    points.push('חלבון גבוה מ־28% → +2');
+  if (fat >= 15) {
+    score += 10;
+    details.push("שומן גבוה");
   }
-  if (ash > 9) {
-    score -= 2;
-    points.push('אפר גולמי גבוה מ־9% → −2');
+
+  if (ash <= 9) {
+    score += 5;
+    details.push("אפר ברמה מקובלת");
   }
-  if (/(corn|wheat|soy)/.test(ing)) {
+
+  if (/grain/i.test(ingredients) && !/grain[-\s]?free/i.test(ingredients)) {
+    score -= 10;
+    details.push("מכיל דגנים");
+  } else if (/grain[-\s]?free/i.test(ingredients)) {
+    score += 10;
+    details.push("ללא דגנים");
+  }
+
+  if (/fresh|real|meat/i.test(ingredients)) {
+    score += 5;
+    details.push("מקור חלבון איכותי");
+  }
+
+  if (/chicken meal|lamb meal|fish meal/i.test(ingredients)) {
+    score += 3;
+    details.push("קמחי בשר איכותיים");
+  }
+
+  if (/by-product|corn|wheat|soy/i.test(ingredients)) {
     score -= 5;
-    points.push('רכיבים זולים (חיטה/תירס/סויה) → −5');
-  }
-  if (/grain[-\s]?free/.test(ing)) {
-    score += 2;
-    points.push('ללא דגנים → +2');
-  }
-  if (/(meat meal|fresh lamb|chicken|fish|duck)/.test(ing)) {
-    score += 3;
-    points.push('מקורות חלבון איכותיים → +3');
-  }
-  if (/(sweet potato|lentil|pea|blueberry|cranberry|chicory)/.test(ing)) {
-    score += 3;
-    points.push('ירקות שורש / פירות / פרוביוטיקה → +3');
+    details.push("רכיבים זולים או בעייתיים");
   }
 
-  const total = 90 + score;
-  const finalScore = Math.min(total, 100);
+  const total = Math.min(score, 110); // ניקוד מקסימלי עם +10 לחיזוק
+  let grade = "C";
+  let color = "#FFA500";
 
-  const grade = total > 100 ? 'A+' :
-                total >= 94 ? 'A' :
-                total >= 86 ? 'B' :
-                total >= 78 ? 'C' :
-                total >= 70 ? 'D' : 'F';
+  if (total >= 110) {
+    grade = "A+";
+    color = "#006400";
+  } else if (total >= 95) {
+    grade = "A";
+    color = "#009900";
+  } else if (total >= 85) {
+    grade = "B";
+    color = "#33cc33";
+  } else if (total >= 70) {
+    grade = "C";
+    color = "#FFA500";
+  } else if (total >= 55) {
+    grade = "D";
+    color = "#FF6666";
+  } else {
+    grade = "F";
+    color = "#CC0000";
+  }
 
-  return {
-    grade,
-    summary: `ציון ${grade} לפי DogScore – ניתוח של רכיבים ואחוזים.`,
-    points,
-    details: `חלבון: ${protein}% | שומן: ${fat}% | אפר: ${ash || '?'}%\nרכיבים: ${ingredients}`
-  };
+  return { grade, score: total, details, color };
 }
 
-app.post('/api/dogscore', async (req, res) => {
-  const { query } = req.body;
-  if (!query) return res.status(400).json({ error: 'שם מוצר נדרש' });
+app.post("/api/dogscore", async (req, res) => {
+  const { productName } = req.body;
 
   try {
-    const search = await axios.get(`https://www.google.com/search?q=${encodeURIComponent(query + ' dog food ingredients')}`);
-    const $ = cheerio.load(search.data);
-    const snippets = $('div').text();
-    const ingredientsMatch = snippets.match(/ingredients?:?\s*([^\n]+)/i);
-    const proteinMatch = snippets.match(/protein[:\s]*([0-9.]+)%?/i);
-    const fatMatch = snippets.match(/fat[:\s]*([0-9.]+)%?/i);
-    const ashMatch = snippets.match(/ash[:\s]*([0-9.]+)%?/i);
+    const dummyData = {
+      protein: 25,
+      fat: 15,
+      ash: 7.5,
+      ingredients: "lamb meal, grain-free, sweet potato, peas, natural flavor, vitamins",
+    };
 
-    const ingredients = ingredientsMatch ? ingredientsMatch[1] : 'unknown';
-    const protein = proteinMatch ? parseFloat(proteinMatch[1]) : 0;
-    const fat = fatMatch ? parseFloat(fatMatch[1]) : 0;
-    const ash = ashMatch ? parseFloat(ashMatch[1]) : null;
+    const result = gradeDogFood(dummyData);
+    recentQueries.unshift({ productName, ...result });
+    if (recentQueries.length > 10) recentQueries.pop();
 
-    const result = gradeDogFood({ protein, fat, ash, ingredients });
-
-    ratings.unshift({ query, ...result, createdAt: new Date() });
-    res.json(result);
-  } catch (e) {
-    res.status(500).json({ error: 'נכשל בלהשיג מידע' });
+    res.json({
+      product: productName,
+      ...result,
+    });
+  } catch (error) {
+    res.status(500).json({ error: "שגיאה בעיבוד הנתונים" });
   }
 });
 
-app.get('/api/recent', (req, res) => {
-  res.json(ratings.slice(0, 10));
+app.get("/api/recent", (req, res) => {
+  res.json(recentQueries);
 });
 
-app.get('/api/top', (req, res) => {
-  const order = ['A+', 'A', 'B', 'C', 'D', 'F'];
-  const sorted = [...ratings].sort((a, b) => order.indexOf(a.grade) - order.indexOf(b.grade));
-  res.json(sorted.slice(0, 5));
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
-
-app.listen(3001, () => console.log('Server running on port 3001'));
