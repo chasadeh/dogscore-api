@@ -46,44 +46,37 @@ function gradeDogFood({ protein, fat, ash }) {
 
   const details = [];
   if (typeof protein === 'number') details.push(`חלבון: ${protein}%`);
-  if (typeof fat === 'number') details.push(`שומן: ${fat}%`);
-  if (typeof ash === 'number') details.push(`אפר: ${ash}%`);
+  if (typeof fat === 'number')     details.push(`שומן: ${fat}%`);
+  if (typeof ash === 'number')     details.push(`אפר: ${ash}%`);
 
-  return {
-    grade,
-    summary: `ציון ${grade} לפי DogScore`,
-    points,
-    details
-  };
+  return { grade, summary: `ציון ${grade} לפי DogScore`, points, details };
 }
 
-// שליפה חכמה עם חיפוש באר האתר
+// שליפה חכמה עם חיפוש באתר WooCommerce
 async function fetchFromSpets(productName) {
   try {
-    // 1. חיפוש לפי שם המוצר (בעברית או באנגלית)
-    const searchUrl = `https://www.spets.co.il/?s=${encodeURIComponent(productName)}`;
+    // השתמש ב-post_type=product כדי להגביל למוצרים
+    const searchUrl = `https://www.spets.co.il/?post_type=product&s=${encodeURIComponent(productName)}`;
     console.log('🔎 Searching URL:', searchUrl);
-    const searchRes = await axios.get(encodeURI(searchUrl));
+    const searchRes = await axios.get(searchUrl);
     const $search = cheerio.load(searchRes.data);
 
-    // 2. מציאת הקישור לעמוד המוצר הראשון בתוצאות החיפוש
-    const links = [];
-    $search('a').each((i, el) => {
-      const href = $search(el).attr('href');
-      if (href && /\/product\/[a-z0-9]/i.test(href)) {
-        const full = href.startsWith('http') ? href : `https://www.spets.co.il${href}`;
-        links.push(full);
-      }
-    });
+    // מציאת הקישור הראשון למוצר מתוך עוגיות hrefs המכילות '/product/'
+    const links = $search('a[href*="/product/"]')
+      .map((i, el) => {
+        let href = $search(el).attr('href');
+        if (href.startsWith('/')) href = `https://www.spets.co.il${href}`;
+        return href;
+      }).get();
+
     if (!links.length) {
       console.error('❌ No product link found on search page');
       return null;
     }
+
     const productUrl = links[0];
     console.log('🔗 Fetching product page:', productUrl);
-
-    // 3. שליפה ופרסינג של עמוד המוצר
-    const resPage = await axios.get(encodeURI(productUrl));
+    const resPage = await axios.get(productUrl);
     const $ = cheerio.load(resPage.data);
 
     // ניסיון למצוא את הכותרת 'אנליזה תזונתית'
@@ -94,12 +87,11 @@ async function fetchFromSpets(productName) {
     if (header.length) {
       nutritionText = header.next('p').text().trim();
     } else {
-      // גיבוי: חפש <p> שבו מופיע 'חלבון:'
+      // גיבוי: בחר פסקה עם 'חלבון:' בפנים
       nutritionText = $('p').filter((i, el) => /חלבון\s*:/.test($(el).text())).first().text().trim();
     }
     console.log('🔍 nutritionText:', nutritionText);
 
-    // 4. חילוץ הערכים
     const proteinMatch = nutritionText.match(/חלבון\s*:?\s*([\d.]+)%/);
     const fatMatch     = nutritionText.match(/שומן\s*:?\s*([\d.]+)%/);
     const ashMatch     = nutritionText.match(/אפר\s*:?\s*([\d.]+)%/);
@@ -122,14 +114,10 @@ async function fetchFromSpets(productName) {
 app.post('/api/dogscore', async (req, res, next) => {
   try {
     const { productName } = req.body;
-    if (!productName) {
-      return res.status(400).json({ error: 'חסר שם מוצר.' });
-    }
+    if (!productName) return res.status(400).json({ error: 'חסר שם מוצר.' });
 
     const data = await fetchFromSpets(productName);
-    if (!data) {
-      return res.status(404).json({ error: 'לא נמצאו נתונים תקפים עבור המוצר הזה.' });
-    }
+    if (!data) return res.status(404).json({ error: 'לא נמצאו נתונים תקפים עבור המוצר הזה.' });
 
     const result = gradeDogFood(data);
     result.product = productName;
@@ -147,6 +135,4 @@ app.use((err, req, res, next) => {
 
 // הפעלת השרת
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
