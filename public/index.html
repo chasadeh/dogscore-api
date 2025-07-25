@@ -26,51 +26,58 @@
     document.getElementById('checkBtn').addEventListener('click', checkScore);
 
     async function checkScore() {
-      const query = document.getElementById('query').value.trim();
       const out = document.getElementById('output');
-      out.innerHTML = '';  // נקה קודם
+      out.innerHTML = '';  // מנקה לפני הכל
 
+      const query = document.getElementById('query').value.trim();
       if (!query) {
         alert('נא להזין שם מוצר.');
         return;
       }
 
+      const url = `${window.location.origin}/api/dogscore`;
+      console.log('⏳ שולח POST ל־', url, 'עם:', query);
+
       let res, data;
       try {
-        res = await fetch('/api/dogscore', {
+        res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ productName: query })
         });
       } catch (networkErr) {
+        console.error('❌ שגיאה ברשת:', networkErr);
         out.innerHTML = `<p style="color:red;">שגיאה ברשת: ${networkErr.message}</p>`;
         return;
       }
 
-      // תמיד נסה לפרש JSON גם אם הסטטוס 404
       try {
         data = await res.json();
       } catch (parseErr) {
-        out.innerHTML = `<p style="color:red;">שגיאה בפרסור התשובה מהשרת.</p>`;
+        console.error('❌ שגיאת JSON:', parseErr);
+        out.innerHTML = `<p style="color:red;">שגיאה בפרסור JSON מהשרת.</p>`;
         return;
       }
 
-      // אם השרת החזיר שגיאה מבוססת JSON
+      console.log('⬅️ קיבל:', res.status, data);
+
       if (data.error) {
         out.innerHTML = `<p style="color:red;">שגיאה: ${data.error}</p>`;
         return;
       }
-
-      // כל שאר הסטטוסים שאינם OK
       if (!res.ok) {
         out.innerHTML = `<p style="color:red;">שגיאה בלתי צפויה (HTTP ${res.status})</p>`;
         return;
       }
 
-      // הצגה תקינה של התוצאה
       out.innerHTML = `
         <div class="result">
           <div class="grade ${data.grade}">ציון: ${data.grade}</div>
           <p><strong>סיכום:</strong> ${data.summary || ''}</p>
           <p><strong>נקודות:</strong><br>${(data.points || []).map(p => `• ${p}`).join('<br>')}</p>
-          <p><strong>פרטים:</strong><br>${(dat
+          <p><strong>פרטים:</strong><br>${(data.details || []).join('<br>')}</p>
+        </div>`;
+    }
+  </script>
+</body>
+</html>
