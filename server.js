@@ -6,7 +6,7 @@ const path = require('path');
 
 const app = express();
 
-// 1. לוג של כל בקשה
+// לוג של כל בקשה נכנסת
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} ▶️ ${req.method} ${req.url}`);
   next();
@@ -16,7 +16,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// פונקציית דירוג
+// פונקציית דירוג חלבון-שומן-אפר
 function gradeDogFood({ protein, fat, ash }) {
   const points = [];
   let score = 0;
@@ -36,7 +36,6 @@ function gradeDogFood({ protein, fat, ash }) {
   if (typeof ash === 'number') {
     if (ash <= 9) score += 1;
     else if (ash > 12) points.push('אפר גבוה מהמומלץ');
-    // אחרת – אפר מקובל, לא מוסיפים נקודה
   } else points.push('אפר חורג או חסר');
 
   let grade = 'F';
@@ -47,41 +46,72 @@ function gradeDogFood({ protein, fat, ash }) {
 
   const details = [];
   if (typeof protein === 'number') details.push(`חלבון: ${protein}%`);
-  if (typeof fat === 'number')     details.push(`שומן: ${fat}%`);
-  if (typeof ash === 'number')     details.push(`אפר: ${ash}%`);
+  if (typeof fat === 'number') details.push(`שומן: ${fat}%`);
+  if (typeof ash === 'number') details.push(`אפר: ${ash}%`);
 
-  return { grade, summary: `ציון ${grade} לפי DogScore`, points, details };
+  return {
+    grade,
+    summary: `ציון ${grade} לפי DogScore`,
+    points,
+    details
+  };
 }
 
-// שליפת נתונים מהאתר
+// שליפה חכמה עם חיפוש באר האתר
 async function fetchFromSpets(productName) {
-  const slug = productName.toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9\-]/g, '');
-  const url = `https://www.spets.co.il/product/${slug}/`;
-
   try {
-    console.log('🔗 Fetching URL:', url);
-    const res = await axios.get(encodeURI(url));
-    const $ = cheerio.load(res.data);
+    // 1. חיפוש לפי שם המוצר (בעברית או באנגלית)
+    const searchUrl = `https://www.spets.co.il/?s=${encodeURIComponent(productName)}`;
+    console.log('🔎 Searching URL:', searchUrl);
+    const searchRes = await axios.get(encodeURI(searchUrl));
+    const $search = cheerio.load(searchRes.data);
 
+    // 2. מציאת הקישור לעמוד המוצר הראשון בתוצאות החיפוש
+    const links = [];
+    $search('a').each((i, el) => {
+      const href = $search(el).attr('href');
+      if (href && /\/product\/[a-z0-9]/i.test(href)) {
+        const full = href.startsWith('http') ? href : `https://www.spets.co.il${href}`;
+        links.push(full);
+      }
+    });
+    if (!links.length) {
+      console.error('❌ No product link found on search page');
+      return null;
+    }
+    const productUrl = links[0];
+    console.log('🔗 Fetching product page:', productUrl);
+
+    // 3. שליפה ופרסינג של עמוד המוצר
+    const resPage = await axios.get(encodeURI(productUrl));
+    const $ = cheerio.load(resPage.data);
+
+    // ניסיון למצוא את הכותרת 'אנליזה תזונתית'
+    let nutritionText = '';
     const header = $('h2, h3, h4')
       .filter((i, el) => $(el).text().trim() === 'אנליזה תזונתית')
       .first();
-    const nutritionText = header.next('p').text().trim();
+    if (header.length) {
+      nutritionText = header.next('p').text().trim();
+    } else {
+      // גיבוי: חפש <p> שבו מופיע 'חלבון:'
+      nutritionText = $('p').filter((i, el) => /חלבון\s*:/.test($(el).text())).first().text().trim();
+    }
     console.log('🔍 nutritionText:', nutritionText);
 
-    const proteinMatch = nutritionText.match(/חלבון\s*:?[\s]*([\d.]+)%/);
-    const fatMatch     = nutritionText.match(/שומן\s*:?[\s]*([\d.]+)%/);
-    const ashMatch     = nutritionText.match(/אפר\s*:?[\s]*([\d.]+)%/);
+    // 4. חילוץ הערכים
+    const proteinMatch = nutritionText.match(/חלבון\s*:?\s*([\d.]+)%/);
+    const fatMatch     = nutritionText.match(/שומן\s*:?\s*([\d.]+)%/);
+    const ashMatch     = nutritionText.match(/אפר\s*:?\s*([\d.]+)%/);
 
     const protein = proteinMatch ? parseFloat(proteinMatch[1]) : null;
     const fat     = fatMatch     ? parseFloat(fatMatch[1])     : null;
     const ash     = ashMatch     ? parseFloat(ashMatch[1])     : null;
 
     if (protein == null && fat == null && ash == null) {
-      throw new Error('No valid nutrition data found');
+      throw new Error('No valid nutrition data found after search');
     }
+
     return { protein, fat, ash };
   } catch (err) {
     console.error('❌ fetchFromSpets error:', err.message);
@@ -89,7 +119,6 @@ async function fetchFromSpets(productName) {
   }
 }
 
-// API עם try/catch ו־next(err)
 app.post('/api/dogscore', async (req, res, next) => {
   try {
     const { productName } = req.body;
@@ -110,12 +139,13 @@ app.post('/api/dogscore', async (req, res, next) => {
   }
 });
 
-// Global error handler
+// טיפול גלובלי בשגיאות
 app.use((err, req, res, next) => {
   console.error('🔥 Unhandled error:', err);
   res.status(500).json({ error: 'שגיאת שרת פנימית.' });
 });
 
+// הפעלת השרת
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
