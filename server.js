@@ -3,46 +3,54 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const cors = require('cors');
 const path = require('path');
+
 const app = express();
 
+// middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
+// grading logic
 function gradeDogFood({ protein, fat, ash }) {
   const points = [];
   let score = 0;
 
-  if (protein >= 28) {
-    score += 2;
-  } else if (protein >= 22) {
-    score += 1;
+  // חלבון
+  if (typeof protein === 'number') {
+    if (protein >= 28) score += 2;
+    else if (protein >= 22) score += 1;
+    else points.push('חלבון נמוך');
   } else {
-    points.push('חלבון נמוך');
+    points.push('חלבון חורג או חסר');
   }
 
-  if (fat >= 12) {
-    score += 2;
-  } else if (fat >= 8) {
-    score += 1;
+  // שומן
+  if (typeof fat === 'number') {
+    if (fat >= 12) score += 2;
+    else if (fat >= 8) score += 1;
+    else points.push('שומן נמוך');
   } else {
-    points.push('שומן נמוך');
+    points.push('שומן חורג או חסר');
   }
 
-  if (ash && ash <= 9) {
-    score += 1;
-  } else if (ash && ash > 12) {
-    points.push('אפר גבוה מהמומלץ');
+  // אפר
+  if (typeof ash === 'number') {
+    if (ash <= 9) score += 1;
+    else if (ash > 12) points.push('אפר גבוה מהמומלץ');
+    // אחרת: אפר ברמה מקובלת, לא מוסיפים נקודה
   } else {
-    points.push('אפר ברמה מקובלת');
+    points.push('אפר חורג או חסר');
   }
 
+  // קביעת דרגה
   let grade = 'F';
   if (score >= 5) grade = 'A';
   else if (score >= 4) grade = 'B';
   else if (score >= 3) grade = 'C';
   else if (score >= 2) grade = 'D';
 
+  // פירוט נתונים
   const details = [];
   if (typeof protein === 'number') details.push(`חלבון: ${protein}%`);
   if (typeof fat === 'number') details.push(`שומן: ${fat}%`);
@@ -56,6 +64,7 @@ function gradeDogFood({ protein, fat, ash }) {
   };
 }
 
+// שליפה ופרסינג מהאתר
 async function fetchFromSpets(productName) {
   const slug = productName.toLowerCase()
     .replace(/\s+/g, '-')
@@ -67,23 +76,38 @@ async function fetchFromSpets(productName) {
     const res = await axios.get(encodeURI(url));
     const $ = cheerio.load(res.data);
 
-    const nutritionText = $('#אנאליזה תזונתית').next('p').text();
+    // בודקים כותרות h2/h3/h4 עם הטקסט 'אנליזה תזונתית'
+    const header = $('h2, h3, h4')
+      .filter((i, el) => $(el).text().trim() === 'אנליזה תזונתית')
+      .first();
+    const nutritionText = header.next('p').text().trim();
     console.log('🔍 nutritionText:', nutritionText);
 
-    const protein = parseFloat(nutritionText.match(/חלבון\s*:?[\s]*([\d.]+)%/)?.[1] || '0');
-    const fat = parseFloat(nutritionText.match(/שומן\s*:?[\s]*([\d.]+)%/)?.[1] || '0');
-    const ash = parseFloat(nutritionText.match(/אפר\s*:?[\s]*([\d.]+)%/)?.[1] || '0');
+    const proteinMatch = nutritionText.match(/חלבון\s*:?[\s]*([\d.]+)%/);
+    const fatMatch     = nutritionText.match(/שומן\s*:?[\s]*([\d.]+)%/);
+    const ashMatch     = nutritionText.match(/אפר\s*:?[\s]*([\d.]+)%/);
+
+    const protein = proteinMatch ? parseFloat(proteinMatch[1]) : null;
+    const fat     = fatMatch     ? parseFloat(fatMatch[1])     : null;
+    const ash     = ashMatch     ? parseFloat(ashMatch[1])     : null;
+
+    if (protein == null && fat == null && ash == null) {
+      throw new Error('No valid nutrition data found');
+    }
 
     return { protein, fat, ash };
   } catch (err) {
-    console.log('❌ fetchFromSpets error:', err.message);
+    console.error('❌ fetchFromSpets error:', err.message);
     return null;
   }
 }
 
+// API endpoints
 app.post('/api/dogscore', async (req, res) => {
   const { productName } = req.body;
-  if (!productName) return res.status(400).json({ error: 'חסר שם מוצר.' });
+  if (!productName) {
+    return res.status(400).json({ error: 'חסר שם מוצר.' });
+  }
 
   const data = await fetchFromSpets(productName);
   if (!data) {
@@ -99,6 +123,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// start server
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
