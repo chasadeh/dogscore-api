@@ -28,36 +28,49 @@
     async function checkScore() {
       const query = document.getElementById('query').value.trim();
       const out = document.getElementById('output');
+      out.innerHTML = '';  // נקה קודם
+
       if (!query) {
         alert('נא להזין שם מוצר.');
         return;
       }
 
+      let res, data;
       try {
-        const res = await fetch('/api/dogscore', {
+        res = await fetch('/api/dogscore', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ productName: query })
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-
-        if (data.error) {
-          out.innerHTML = `<p style="color:red;">שגיאה: ${data.error}</p>`;
-          return;
-        }
-
-        out.innerHTML = `
-          <div class="result">
-            <div class="grade ${data.grade}">ציון: ${data.grade}</div>
-            <p><strong>סיכום:</strong> ${data.summary || ''}</p>
-            <p><strong>נקודות:</strong><br>${(data.points || []).map(p => `• ${p}`).join('<br>')}</p>
-            <p><strong>פרטים:</strong><br>${(data.details || []).join('<br>')}</p>
-          </div>`;
-      } catch (err) {
-        out.innerHTML = `<p style="color:red;">שגיאה ברשת: ${err.message}</p>`;
+      } catch (networkErr) {
+        out.innerHTML = `<p style="color:red;">שגיאה ברשת: ${networkErr.message}</p>`;
+        return;
       }
-    }
-  </script>
-</body>
-</html>
+
+      // תמיד נסה לפרש JSON גם אם הסטטוס 404
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        out.innerHTML = `<p style="color:red;">שגיאה בפרסור התשובה מהשרת.</p>`;
+        return;
+      }
+
+      // אם השרת החזיר שגיאה מבוססת JSON
+      if (data.error) {
+        out.innerHTML = `<p style="color:red;">שגיאה: ${data.error}</p>`;
+        return;
+      }
+
+      // כל שאר הסטטוסים שאינם OK
+      if (!res.ok) {
+        out.innerHTML = `<p style="color:red;">שגיאה בלתי צפויה (HTTP ${res.status})</p>`;
+        return;
+      }
+
+      // הצגה תקינה של התוצאה
+      out.innerHTML = `
+        <div class="result">
+          <div class="grade ${data.grade}">ציון: ${data.grade}</div>
+          <p><strong>סיכום:</strong> ${data.summary || ''}</p>
+          <p><strong>נקודות:</strong><br>${(data.points || []).map(p => `• ${p}`).join('<br>')}</p>
+          <p><strong>פרטים:</strong><br>${(dat
