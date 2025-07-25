@@ -2,91 +2,90 @@ const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const cors = require('cors');
-
+const path = require('path');
 const app = express();
+
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
 function gradeDogFood({ protein, fat, ash }) {
   const points = [];
-  const details = [];
   let score = 0;
 
   if (protein >= 28) {
-    score += 3;
-    points.push('חלבון גבוה');
-  } else if (protein >= 24) {
     score += 2;
-    points.push('חלבון בינוני');
+  } else if (protein >= 22) {
+    score += 1;
   } else {
     points.push('חלבון נמוך');
   }
-  details.push(`חלבון: ${protein}%`);
 
-  if (fat >= 14) {
+  if (fat >= 12) {
     score += 2;
-    points.push('שומן גבוה');
-  } else if (fat >= 10) {
+  } else if (fat >= 8) {
     score += 1;
-    points.push('שומן בינוני');
   } else {
     points.push('שומן נמוך');
   }
-  details.push(`שומן: ${fat}%`);
 
-  if (ash <= 9) {
+  if (ash && ash <= 9) {
     score += 1;
-    points.push('אפר ברמה מקובלת');
+  } else if (ash && ash > 12) {
+    points.push('אפר גבוה מהמומלץ');
   } else {
-    points.push('אפר גבוה');
+    points.push('אפר ברמה מקובלת');
   }
-  details.push(`אפר: ${ash}%`);
 
   let grade = 'F';
-  if (score >= 6) grade = 'A';
-  else if (score >= 5) grade = 'B';
-  else if (score >= 4) grade = 'C';
-  else if (score >= 3) grade = 'D';
+  if (score >= 5) grade = 'A';
+  else if (score >= 4) grade = 'B';
+  else if (score >= 3) grade = 'C';
+  else if (score >= 2) grade = 'D';
 
-  return { grade, summary: `ציון ${grade} לפי DogScore`, points, details };
+  const details = [];
+  if (typeof protein === 'number') details.push(`חלבון: ${protein}%`);
+  if (typeof fat === 'number') details.push(`שומן: ${fat}%`);
+  if (typeof ash === 'number') details.push(`אפר: ${ash}%`);
+
+  return {
+    grade,
+    summary: `ציון ${grade} לפי DogScore`,
+    points,
+    details
+  };
 }
 
 async function fetchFromSpets(productName) {
   const slug = productName.toLowerCase()
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9\-]/g, '');
-
   const url = `https://www.spets.co.il/product/${slug}/`;
-  console.log(`🔗 Fetching URL: ${url}`);
 
   try {
-    const res = await axios.get(url);
-    const html = res.data;
-    console.log("🔍 HTML length:", html.length);
+    console.log('🔗 Fetching URL:', url);
+    const res = await axios.get(encodeURI(url));
+    const $ = cheerio.load(res.data);
 
-    const $ = cheerio.load(html);
-    const nutritionText = $('#אנאליזה תזונתית').next('p').text().trim();
+    const nutritionText = $('#אנאליזה תזונתית').next('p').text();
+    console.log('🔍 nutritionText:', nutritionText);
 
-    console.log("🔍 nutritionText:", nutritionText);
+    const protein = parseFloat(nutritionText.match(/חלבון\s*:?[\s]*([\d.]+)%/)?.[1] || '0');
+    const fat = parseFloat(nutritionText.match(/שומן\s*:?[\s]*([\d.]+)%/)?.[1] || '0');
+    const ash = parseFloat(nutritionText.match(/אפר\s*:?[\s]*([\d.]+)%/)?.[1] || '0');
 
-    const protein = parseFloat(nutritionText.match(/חלבון\s*([\d.]+)%/)?.[1] || 0);
-    const fat = parseFloat(nutritionText.match(/שומן\s*([\d.]+)%/)?.[1] || 0);
-    const ash = parseFloat(nutritionText.match(/אפר\s*([\d.]+)%/)?.[1] || 0);
-
-    console.log(`✅ Parsed → protein: ${protein}, fat: ${fat}, ash: ${ash}`);
     return { protein, fat, ash };
-
   } catch (err) {
-    console.error("❌ fetchFromSpets error:", err.message);
+    console.log('❌ fetchFromSpets error:', err.message);
     return null;
   }
 }
 
 app.post('/api/dogscore', async (req, res) => {
   const { productName } = req.body;
-  const data = await fetchFromSpets(productName);
+  if (!productName) return res.status(400).json({ error: 'חסר שם מוצר.' });
 
+  const data = await fetchFromSpets(productName);
   if (!data) {
     return res.status(404).json({ error: 'לא נמצאו נתונים תקפים עבור המוצר הזה.' });
   }
@@ -94,6 +93,10 @@ app.post('/api/dogscore', async (req, res) => {
   const result = gradeDogFood(data);
   result.product = productName;
   res.json(result);
+});
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 const PORT = process.env.PORT || 10000;
